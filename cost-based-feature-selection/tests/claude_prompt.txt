@@ -1,0 +1,25 @@
+Tool name and version: Claude Code (Sonnet 4.6)
+Type: 2
+Where it was used: cost-based-feature-selection/tests
+
+Prompt:
+Write Unit tests for the algorithms cost_cfs.py, cost_constrained_gb.py and mopso.py in cost-based-feature-selection/tests .
+
+The algorithms work as cost-based algorithms, meaning that features have a cost attached to them. As the features are calculated in groups, the first feature to be selected, carries the cost for calculating the group. The other features from that group then are already calculated, and have zero costs.
+
+The algorithms are to be tested to work as feature selection algorihms.
+
+Next, create verification questions for the code created. Then revise the created code based on the verification.
+
+Now, create a .md file in the tests folder summarizing the final work briefly.
+
+Result:
+conftest.py
+test_algorithms.py
+README.md
+
+Sentiment:
+The tests did not seem to provide value, as all tests passed on the first try, while I later found bugs / logic errors in the algorithms. 
+To meaningful use AI, more context and input would have probably been needed.
+I also did not excpect great results, as I used it to see wether I did mistakes so obvious they would be caught by this before I tested 
+parts on the cluster.

@@ -3,7 +3,7 @@
 config="${3:-"$HOME/fe4femo/ml_analysis/slurm_scripts/config.txt"}"
 output_path="${2:-"fe4femo/ml_analysis/out/main"}"
 script_path="$HOME/fe4femo/ml_analysis/slurm_scripts/run.sh"
-data_path="raphael-dunkel-master/data/"
+data_path="$HOME/fe4femo/data"
 
 mkdir -p $HOME/$output_path
 
@@ -56,4 +56,4 @@ while [[ maxIt -ge 0 ]] ; do
     fi
 done
 
-mail -s "Finished Job Submission" "raphael.dunkel@uni-ulm.de" <<< "Submission script finished, but jobs could still be running. Check with command 'squeue' to list all currently running jobs!"
+mail -s "Finished Job Submission" "l.gsuck@tu-braunschweig.de" <<< "Submission script finished, but jobs could still be running. Check with command 'squeue' to list all currently running jobs!"

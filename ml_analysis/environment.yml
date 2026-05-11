@@ -244,6 +244,7 @@ dependencies:
   - zlib=1.3.1=hb9d3cd8_2
   - zstandard=0.23.0=py312hef9b889_1
   - zstd=1.5.6=ha6fb4c9_0
+  - lightgbm=4.6.0
   - pip:
       - bottle==0.13.2
       - category-encoders==2.8.0

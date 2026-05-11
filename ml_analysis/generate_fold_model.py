@@ -49,9 +49,9 @@ def train_model(model, is_classification, cores, model_config, X_train_test, pre
     model_instance.fit(X_train, y_train)
     return model_instance
 
-def do_feature_selection(model, is_classification, model_config, precomputed, features, selector_config, feature_groups, cores, verbose = False):
+def do_feature_selection(model, is_classification, model_config, precomputed, features, selector_config, feature_groups, cores, verbose = False, feature_group_times = None):
     model_instance_selector = get_model(model, is_classification, 1, model_config )
-    return get_feature_selection(precomputed, features, is_classification, selector_config, model_instance_selector, feature_groups, parallelism=cores, verbose=verbose, dask_parallel=False)
+    return get_feature_selection(precomputed, features, is_classification, selector_config, model_instance_selector, feature_groups, parallelism=cores, verbose=verbose, dask_parallel=False, feature_group_times=feature_group_times)
 
 def eval_feature_group_runtime(X_train_test, feature_groups: dict[str, list[str]], feature_group_times: pd.DataFrame) -> float:
     X_train, X_test = X_train_test
@@ -69,7 +69,7 @@ def build_fold_result(model_performance: float, feature_computation_time: float)
 
 def compute_fold(client, model, features, is_classification, model_config, selector_config, feature_groups, feature_group_times, precomputed, cores : int, verbose = False)  -> float:
     # feature selection + model training
-    X_train_test = client.submit(do_feature_selection, model, is_classification, model_config, precomputed, features, selector_config, feature_groups, cores, verbose,pure=False)
+    X_train_test = client.submit(do_feature_selection, model, is_classification, model_config, precomputed, features, selector_config, feature_groups, cores, verbose, feature_group_times, pure=False)
     model_instance = client.submit(train_model, model, is_classification, cores, model_config, X_train_test, precomputed, pure=False)
     model_performance = client.submit(eval_model_performance, model_instance, X_train_test, precomputed, is_classification, pure=False)
     feature_computation_time = client.submit(eval_feature_group_runtime, X_train_test, feature_groups, feature_group_times, pure=False)
@@ -115,7 +115,7 @@ def optimize_optuna(study: optuna.study.Study, objective_function, lock : dask.d
         study.optimize(objective_function, n_trials=1)
 
 
-def compute_final_model(client, model, features, X_train, X_test, y_train, y_test, is_classification, model_config, selector_config, model_flatness, feature_groups, easy_model, cores, verbose):
+def compute_final_model(client, model, features, X_train, X_test, y_train, y_test, is_classification, model_config, selector_config, model_flatness, feature_groups, easy_model, cores, verbose, feature_group_times=None):
     model_instance_selector = get_model(model, is_classification, 1, model_config, easy_model=easy_model)
     start_FS = time.time()
     precomputed = client.submit(precompute_feature_selection, features, is_classification, X_train, X_test, y_train,
@@ -123,7 +123,7 @@ def compute_final_model(client, model, features, X_train, X_test, y_train, y_tes
     precomputed = client.submit(transform_dict_to_var_dict, precomputed, pure=False)
     fs_future = client.submit(get_feature_selection, precomputed, features, is_classification, selector_config,
                               model_instance_selector, feature_groups, parallelism=cores, verbose=verbose,
-                              dask_parallel=True, pure=False)
+                              dask_parallel=True, feature_group_times=feature_group_times, pure=False)
     X_train, X_test = fs_future.result()
     end_FS = time.time()
     model_instance = get_model(model, is_classification, cores, model_config)
@@ -263,7 +263,7 @@ def main(in_proc_id: int, worker_count : int, pathData: str, pathOutput: str, fe
                                                                                        is_classification, model_config,
                                                                                        selector_config, model_flatness,
                                                                                        feature_groups, easy_model, cores,
-                                                                                       verbose)
+                                                                                       verbose, feature_group_times)
                         trial_container.append(TrialContainer(model=model_complete, best_params=best_params, time_Feature=time_feature, time_Model=time_model, x_test=X_test_mod))
 
                 else:
@@ -277,7 +277,7 @@ def main(in_proc_id: int, worker_count : int, pathData: str, pathOutput: str, fe
                                                                                    is_classification, model_config,
                                                                                    selector_config, model_flatness,
                                                                                    feature_groups, easy_model, cores,
-                                                                                   verbose)
+                                                                                   verbose, feature_group_times)
                     trial_container = [TrialContainer(model=model_complete, best_params=best_params, time_Feature=time_feature, time_Model=time_model, x_test=X_test)]
 
                 # export for later use

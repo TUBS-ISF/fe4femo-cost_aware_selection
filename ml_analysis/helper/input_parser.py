@@ -1,8 +1,9 @@
 import argparse
 
 def get_feature_list() -> list[str]:
-    return ["all", "prefilter", "SATzilla", "SATfeatPy", "FMBA", "FM_Chara", "kbest-mutalinfo", "multisurf", "mRMR",
-            "RFE",  "genetic", "HFMOEA", "embedded-tree", "SVD-entropy", "NDFS", "optuna-combined",
+    return [#"all", "prefilter", "SATzilla", "SATfeatPy", "FMBA", "FM_Chara", "kbest-mutalinfo", "multisurf", "mRMR",
+            #"RFE",  "genetic", "HFMOEA", "embedded-tree", "SVD-entropy", "NDFS", "optuna-combined",
+            "cost-cfs", "cost-gb", "mopso",
                 #"harris-hawks",
             ]
 

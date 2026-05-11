@@ -19,9 +19,8 @@ echo -e "JOB_ID=${SLURM_JOB_ID}"
 echo -e "OMP_THREADS=${OMP_NUM_THREADS}"
 
 echo -e "########\nCONTAINER START"
-export ENROOT_CONFIG_PATH=$HOME/enroot_config/
 
-# helper: srun --container-image=$HOME/fe4femo/ml_analysis/slurm_scripts/ml_analysis_i.sqsh --container-name=ml_analysis:no_exec    --container-mounts=/etc/slurm/task_prolog:/etc/slurm/task_prolog,/scratch:/scratch    --container-workdir=/app/ --time=10 --partition=dev_single --no-container-entrypoint /bin/bash
+SIF="$HOME/fe4femo/ml_analysis/ml_analysis.sif"
 
 if [ "$ML_FOLD" = "-1" ]; then
   RUN_COMMAND=("/app/slurm_scripts/fold_connector.sh")
@@ -29,9 +28,10 @@ else
   RUN_COMMAND=("/app/slurm_scripts/slurm_fork_tracker.sh")
 fi
 
-
-
-srun --exact --container-image=ghcr.io#rsd6170/ml_analysis:0.1 --container-name=ml_analysis:no_exec \
-   --container-mounts=/etc/slurm/task_prolog:/etc/slurm/task_prolog,/scratch:/scratch  --container-mount-home \
-   --container-workdir=/app/ --no-container-entrypoint "${RUN_COMMAND[@]}" "$@"
-
+srun apptainer exec \
+  --bind /etc/slurm/task_prolog:/etc/slurm/task_prolog \
+  --bind /scratch:/scratch \
+  --bind "$HOME:$HOME" \
+  --bind "$HOME/fe4femo/ml_analysis:/app" \
+  --pwd /app \
+  "$SIF" "${RUN_COMMAND[@]}" "$@"

@@ -1,0 +1,28 @@
+Bootstrap: library
+From: ubuntu:22.04
+
+# Replaces ml_analysis/Dockerfile.
+
+%files
+    ml_analysis/environment.yml /app/environment.yml
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update && apt-get install -y --no-install-recommends \
+        wget bzip2 ca-certificates && \
+        apt-get clean && rm -rf /var/lib/apt/lists/*
+
+    wget -q https://repo.anaconda.com/miniconda/Miniconda3-py312_24.9.2-0-Linux-x86_64.sh \
+        -O /tmp/miniconda.sh
+    bash /tmp/miniconda.sh -b -p /opt/conda
+    rm /tmp/miniconda.sh
+
+    /opt/conda/bin/conda env create -f /app/environment.yml
+    /opt/conda/bin/conda clean -afy
+    rm -rf /root/.cache/pip /tmp/*
+
+    mkdir -p /app /in /out
+
+%environment
+    export PATH="/opt/conda/bin:$PATH"
+    export PYTHONDONTWRITEBYTECODE=false

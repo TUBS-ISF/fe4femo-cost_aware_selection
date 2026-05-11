@@ -73,11 +73,13 @@ def get_replace_dictionary() -> dict:
             "runtime_sat" : "Runtime Kissat", "runtime_backbone" : "Runtime CaDiBack", "runtime_spur" : "Runtime Spur",
             "value_ssat" : "FM Cardinality", "value_backbone" : "Backbone Size", "algo_selection" : "#SAT Algorithm Selection",
             "all": "Complete", "prefilter": "Prefiltering",
-            "randomForest" : "Random Forest", "gradboostForest" : "GB Trees", "adaboost": "AdaBoost"}
+            "randomForest" : "Random Forest", "gradboostForest" : "GB Trees", "adaboost": "AdaBoost",
+            "cost-cfs": "Cost-CFS", "cost-gb": "Cost-GB", "mopso": "MOPSO"}
 
 def get_order() -> list:
     return ["Complete", "Prefiltering", "SATZilla", "SATfeatPy", "FMBA", "FM Fact Label", "MI Filtering", "MultiSURF",
-            "mRMR", "RFE", "Genetic", "HFMOEA", "Embedded Tree", "FS as HPO", "SVD-Entropy", "NDFS"]
+            "mRMR", "RFE", "Genetic", "HFMOEA", "Embedded Tree", "FS as HPO", "SVD-Entropy", "NDFS",
+            "Cost-CFS", "Cost-GB", "MOPSO"]
 
 @dataclass(frozen=True, eq=True)
 class ExperimentInstance:

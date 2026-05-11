@@ -20,7 +20,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.metrics import matthews_corrcoef, d2_absolute_error_score
 from sklearn.model_selection import KFold, cross_val_score, train_test_split, StratifiedKFold
 from sklearn.preprocessing import RobustScaler, StandardScaler
-from zoofs import HarrisHawkOptimization, GeneticOptimization
+# from zoofs import HarrisHawkOptimization, GeneticOptimization
 
 from external.HFMOEA.main import reduceFeaturesMaxAcc, compute_sol
 from external.genetic_parallel import GeneticParallel
@@ -32,6 +32,40 @@ from external.svd_entropy import keep_high_contrib_features
 from helper.data_classes import FoldSplit
 from helper.load_dataset import filter_SATzilla, filter_SATfeatPy, filter_FMBA, filter_FMChara
 from helper.model_training import is_model_classifier
+from external.cost_based.cost_cfs import CostBasedCFS
+from external.cost_based.cost_constrained_gb import CostConstrainedGBSelector
+from external.cost_based.mopso import MOPSOFeatureSelector
+
+
+def _make_cost_fn(
+    X_train: pd.DataFrame,
+    X_test: pd.DataFrame,
+    group_dict: dict[str, list[str]],
+    feature_group_times: pd.DataFrame | None,
+):
+    """
+    This code does the calc for feature costs like 
+    eval_feature_group_runtime in generate_fold_model.py.
+    
+    But it works with indices,and I first overlooked the 
+    eval_ function and already used this in the algorithms.
+    """
+    if feature_group_times is None:
+        return None
+
+    instances = list(set(X_train.index.values).union(set(X_test.index.values)))
+
+    def cost_fn(subset: list[int]) -> float:
+        active_features = set(X_train.columns[subset])
+        active_groups = [
+            group for group, feature_list in group_dict.items()
+            if any(feature in active_features for feature in feature_list)
+        ]
+        if not active_groups:
+            return 0.0
+        return float(feature_group_times.loc[instances, active_groups].sum(axis=1).mean())
+
+    return cost_fn
 
 
 def transform_dict_to_var_dict(dictionary : dict) -> dict:
@@ -91,7 +125,7 @@ def impute_and_scale(X_train, X_test):
     return X_train, X_test
 
 
-def precompute_feature_selection(features: str, isClassification : bool, X_train_orig : pd.DataFrame, X_test_orig : pd.DataFrame, y_train : pd.Series, y_test : pd.Series, model_flatness : pd.Series, threshold : float = .9, parallelism : int = 1, ):
+def precompute_feature_selection(features: str, isClassification : bool, X_train_orig : pd.DataFrame, X_test_orig : pd.DataFrame, y_train : pd.Series, y_test : pd.Series, model_flatness : pd.Series, threshold : float = .9, parallelism : int = 1, feature_group_times : pd.DataFrame | None = None, ):
     X_train_imputed, X_test_imputed = impute_and_scale(X_train_orig, X_test_orig)
     if features == "all": # do not prefilter for all
         return {
@@ -155,6 +189,8 @@ def precompute_feature_selection(features: str, isClassification : bool, X_train
             pass
         case "optuna-combined":
             pass
+        case "cost-cfs" | "cost-gb" | "mopso":
+            pass
         case _:
             raise ValueError("Invalid Feature Subset")
     return ret_dict
@@ -173,7 +209,7 @@ def extract_fold_list(precomputed : dict) -> list[Variable]:
     else:
         raise Exception("No folds in precomputed!")
 
-def get_feature_selection(precomputed:dict, features : str, isClassification : bool, selector_args, estimator, group_dict : dict[str, list[str]], parallelism : int = 1, verbose = False, dask_parallel : bool = False):
+def get_feature_selection(precomputed:dict, features : str, isClassification : bool, selector_args, estimator, group_dict : dict[str, list[str]], parallelism : int = 1, verbose = False, dask_parallel : bool = False, feature_group_times : pd.DataFrame | None = None):
     y_train = precomputed["y_train"].get().result()
     X_train = precomputed["X_train"].get().result()
     X_test = precomputed["X_test"].get().result()
@@ -243,6 +279,37 @@ def get_feature_selection(precomputed:dict, features : str, isClassification : b
             selected_feature_names_list = [ retained_features & set(v) for k, v in group_dict.items() if selector_args[k]]
             selected_feature_names = list(itertools.chain.from_iterable(selected_feature_names_list))
             return X_train[selected_feature_names], X_test[selected_feature_names]
+        case "cost-cfs":
+            cost_fn = _make_cost_fn(X_train, X_test, group_dict, feature_group_times)
+            selector = CostBasedCFS(cost_penalty=selector_args.get("cost_penalty", 0.1))
+            selector.fit(X_train, y_train, cost_fn=cost_fn)
+            return selector.transform(X_train), selector.transform(X_test)
+        case "cost-gb":
+            cost_fn = _make_cost_fn(X_train, X_test, group_dict, feature_group_times)
+            selector = CostConstrainedGBSelector(
+                is_classification=isClassification,
+                n_jobs=parallelism,
+                max_iter=selector_args.get("max_iter", 50),
+                delta=selector_args.get("delta", None),
+                gb_params={
+                    "n_estimators":  selector_args.get("n_estimators", 100),
+                    "max_depth":     selector_args.get("max_depth", 6),
+                    "learning_rate": selector_args.get("learning_rate", 0.1),
+                },
+            )
+            selector.fit(X_train, y_train, cost_fn=cost_fn)
+            return selector.transform(X_train), selector.transform(X_test)
+        case "mopso":
+            cost_fn = _make_cost_fn(X_train, X_test, group_dict, feature_group_times)
+            selector = MOPSOFeatureSelector(
+                n_particles=selector_args.get("n_particles", 30),
+                n_iterations=selector_args.get("n_iterations", 100),
+                selection_strategy=selector_args.get("selection_strategy", "min_cost"),
+                is_classification=isClassification,
+                n_jobs=parallelism,
+            )
+            selector.fit(X_train, y_train, cost_fn=cost_fn)
+            return selector.transform(X_train), selector.transform(X_test)
         case _:
             raise ValueError("Invalid Feature Subset")
 
@@ -312,6 +379,24 @@ def get_selection_HPO_space(features : str, trial : Trial, isClassification : bo
         case "optuna-combined":
             return {
                 group_name : trial.suggest_categorical(group_name, [True, False]) for group_name in group_dict.keys()
+            }
+        case "cost-cfs":
+            return {
+                "cost_penalty": trial.suggest_float("cost_penalty", 0.0, 2.0),
+            }
+        case "cost-gb":
+            return {
+                "n_estimators":  trial.suggest_int("n_estimators", 50, 500),
+                "max_depth":     trial.suggest_int("max_depth", 3, 10),
+                "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+                "max_iter":      trial.suggest_int("max_iter", 10, 50),
+                "delta":         trial.suggest_float("delta", 0.001, 1.0, log=True),
+            }
+        case "mopso":
+            return {
+                "n_particles": trial.suggest_int("n_particles", 10, 50),
+                "n_iterations": trial.suggest_int("n_iterations", 20, 100),
+                "selection_strategy": trial.suggest_categorical("selection_strategy", ["min_cost", "max_perf", "knee"]),
             }
         case _:
             raise ValueError("Invalid Feature Subset")

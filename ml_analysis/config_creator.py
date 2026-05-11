@@ -34,7 +34,10 @@ def get_runtime(hpoIts: int, feature: str, individual_folds : bool, multi_object
         "embedded-tree" : 175,
         "SVD-entropy" : 30,
         "NDFS" : 36,
-        "optuna-combined" : 70
+        "optuna-combined" : 70,
+        "cost-cfs" : 60,
+        "cost-gb" : 90,
+        "mopso" : 210,
     }
 
     final_modifier = 1.8

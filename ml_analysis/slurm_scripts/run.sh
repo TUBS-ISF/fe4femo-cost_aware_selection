@@ -13,8 +13,11 @@ if [[ -z "$ML_FOLD" ]]; then
 fi
 
 export DASK_LOGGING__DISTRIBUTED=WARN
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-2}"
+export PYTHONWARNINGS="${PYTHONWARNINGS:-ignore}"
+export JOBLIB_TEMP_FOLDER="${JOBLIB_TEMP_FOLDER:-${TMPDIR:-/tmp}}"
+export TMPDIR="${TMPDIR:-/tmp}"
 
-export OMP_NUM_THREADS=2
 echo -e "JOB_ID=${SLURM_JOB_ID}"
 echo -e "OMP_THREADS=${OMP_NUM_THREADS}"
 
@@ -22,16 +25,32 @@ echo -e "########\nCONTAINER START"
 
 SIF="$HOME/fe4femo/ml_analysis/ml_analysis.sif"
 
+if [[ ! -f "${SIF}" ]]; then
+  echo "SIF image not found: ${SIF}" 1>&2
+  exit 1
+fi
+
+# Copy SIF to node-local scratch to avoid squashfuse failures over NFS when multiple nodes read the same file simultaneously.
+local_sif="${TMPDIR}/ml_analysis.sif"
+echo "Copying SIF to local scratch: ${local_sif}"
+cp "${SIF}" "${local_sif}"
+
 if [ "$ML_FOLD" = "-1" ]; then
   RUN_COMMAND=("/app/slurm_scripts/fold_connector.sh")
 else
   RUN_COMMAND=("/app/slurm_scripts/slurm_fork_tracker.sh")
 fi
 
-srun apptainer exec \
+if [[ $SLURMD_NODENAME =~ "compute" ]]; then
+  apptainer_cmd="="$HOME/apptainer-dir/usr/bin/apptainer"
+else
+  apptainer_cmd="apptainer"
+fi
+
+srun "${apptainer_cmd}" exec \
   --bind /etc/slurm/task_prolog:/etc/slurm/task_prolog \
   --bind /scratch:/scratch \
   --bind "$HOME:$HOME" \
   --bind "$HOME/fe4femo/ml_analysis:/app" \
   --pwd /app \
-  "$SIF" "${RUN_COMMAND[@]}" "$@"
+  "${local_sif}" "${RUN_COMMAND[@]}" "$@"

@@ -1,4 +1,4 @@
-Bootstrap: library
+Bootstrap: docker
 From: ubuntu:22.04
 
 # Replaces ml_analysis/Dockerfile.
@@ -19,7 +19,7 @@ From: ubuntu:22.04
 
     /opt/conda/bin/conda env create -f /app/environment.yml
     /opt/conda/bin/conda clean -afy
-    rm -rf /root/.cache/pip /tmp/*
+    rm -rf /root/.cache/pip
 
     mkdir -p /app /in /out
 

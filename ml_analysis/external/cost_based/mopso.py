@@ -115,12 +115,18 @@ class MOPSOFeatureSelector(BaseEstimator, TransformerMixin):
                 mask[int(np.argmax(pos))] = 1.0
             return mask
 
+        _eval_cache: dict[tuple, tuple] = {}
+
         def _evaluate(mask: np.ndarray) -> tuple[float, float, float, float]:
             sol = mask.astype(int)
             if sol.sum() == 0:
                 return 0.0, 1.0, 1.0, 0.0
 
             selected = np.where(sol)[0]
+            cache_key = tuple(selected.tolist())
+            if cache_key in _eval_cache:
+                return _eval_cache[cache_key]
+
             X_sel = X_arr[:, selected]
 
             try:
@@ -141,7 +147,7 @@ class MOPSOFeatureSelector(BaseEstimator, TransformerMixin):
             except Exception:
                 perf = 0.0
 
-            f2 = 1.0 - perf   # error rate
+            f2 = 1.0 - perf
 
             if cost_fn is not None:
                 total_c = cost_fn(selected.tolist())
@@ -150,7 +156,9 @@ class MOPSOFeatureSelector(BaseEstimator, TransformerMixin):
                 total_c = float((sol * costs).sum())
                 f1 = float((sol * u).sum()) / sum_u
 
-            return perf, f1, f2, total_c
+            result = (perf, f1, f2, total_c)
+            _eval_cache[cache_key] = result
+            return result
 
 
         # Init swarm
@@ -189,8 +197,12 @@ class MOPSOFeatureSelector(BaseEstimator, TransformerMixin):
 
             c1 = 2.5 - 2.0 * t / max(self.n_iterations, 1)
             c2 = 0.5 + 2.0 * t / max(self.n_iterations, 1)
+            iter_dists = (
+                _crowding_distances([e[1] for e in archive], [e[2] for e in archive])
+                if len(archive) > 1 else None
+            )
             for i in range(self.n_particles):
-                gbest_i = self._select_guide(archive, rng, n_features)
+                gbest_i = self._select_guide(archive, rng, n_features, iter_dists)
                 r1 = rng.uniform(0.0, 1.0, size=n_features)
                 r2 = rng.uniform(0.0, 1.0, size=n_features)
                 velocities[i] = (
@@ -262,12 +274,19 @@ class MOPSOFeatureSelector(BaseEstimator, TransformerMixin):
             non_dom.pop(int(np.argmin(dists)))
         return non_dom
 
-    def _select_guide(self, archive: list, rng: np.random.Generator, n_features: int) -> np.ndarray:
+    def _select_guide(
+        self,
+        archive: list,
+        rng: np.random.Generator,
+        n_features: int,
+        dists: np.ndarray | None = None,
+    ) -> np.ndarray:
         if not archive:
             return np.full(n_features, 0.5, dtype=np.float64)
         if len(archive) == 1:
             return archive[0][4].astype(np.float64)
-        dists = _crowding_distances([e[1] for e in archive], [e[2] for e in archive])
+        if dists is None:
+            dists = _crowding_distances([e[1] for e in archive], [e[2] for e in archive])
         idx_a, idx_b = rng.choice(len(archive), size=2, replace=False)
         winner = idx_a if dists[idx_a] >= dists[idx_b] else idx_b
         return archive[winner][4].astype(np.float64)

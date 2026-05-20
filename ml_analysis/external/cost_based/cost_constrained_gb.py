@@ -164,42 +164,25 @@ class CostConstrainedGBSelector(BaseEstimator, TransformerMixin):
         lambda_val: float,
         costs_rank: np.ndarray,
     ) -> tuple:
-        m = (self.gb_params or {}).get("n_estimators", 100)
+        params = dict(self.gb_params or {})
+        params["random_state"] = self.random_state
+        params["n_jobs"] = self.n_jobs
+        params["verbosity"] = -1
+        params["cegb_tradeoff"] = lambda_val
+        params["cegb_penalty_feature_lazy"] = costs_rank.tolist()
 
-        base = {k: v for k, v in (self.gb_params or {}).items()
-                if k != "n_estimators"}
-        base["n_estimators"] = 1
-        base["random_state"] = self.random_state
-        base["n_jobs"] = self.n_jobs
-        base["verbosity"] = -1
-        base["cegb_tradeoff"] = lambda_val
-        base["cegb_penalty_feature_lazy"] = costs_rank.tolist()
+        clf = (
+            lgb.LGBMClassifier(**params)
+            if self.is_classification
+            else lgb.LGBMRegressor(**params)
+        )
+        clf.fit(X_df, y_arr)
 
-        model = None
-        total_gain = np.zeros(len(costs_rank))
-        weight = np.zeros(len(costs_rank))
-        lambda_max = 0.0
+        total_gain = _feature_scores(clf, "gain")
+        weight = _feature_scores(clf, "split")
+        lambda_max = _compute_lambda_max(total_gain, weight, costs_rank)
 
-        for _ in range(m):
-            clf = (
-                lgb.LGBMClassifier(**base)
-                if self.is_classification
-                else lgb.LGBMRegressor(**base)
-            )
-            if model is None:
-                clf.fit(X_df, y_arr)
-            else:
-                clf.fit(X_df, y_arr, init_model=model.booster_)
-            model = clf
-
-            total_gain = _feature_scores(model, "gain")
-            weight = _feature_scores(model, "split")
-            lambda_max = _compute_lambda_max(total_gain, weight, costs_rank)
-
-            if lambda_val > lambda_max:
-                break
-
-        return model, total_gain, weight, lambda_max
+        return clf, total_gain, weight, lambda_max
 
     # Line 13-20, the greedy selection of features
     def _select(

@@ -139,7 +139,7 @@ class CostBasedCFS(BaseEstimator, TransformerMixin):
                 if self.budget is not None and candidate_cost > self.budget:
                     continue
 
-                merit = self._compute_merit(candidate, r_cf, r_ff, costs)
+                merit = self._compute_merit(candidate, r_cf, r_ff, costs, candidate_cost)
                 heapq.heappush(heap, (-merit, tiebreak, candidate_frozen))
                 tiebreak += 1
 
@@ -165,6 +165,7 @@ class CostBasedCFS(BaseEstimator, TransformerMixin):
         r_cf: np.ndarray,
         r_ff: np.ndarray,
         costs: np.ndarray,
+        precomputed_cost: float | None = None,
     ) -> float:
         k = len(subset)
         if k == 0:
@@ -185,10 +186,11 @@ class CostBasedCFS(BaseEstimator, TransformerMixin):
         denominator = np.sqrt(k + k * (k - 1) * mean_r_ff)
         base_merit = (k * mean_r_cf) / denominator if denominator > 0 else 0.0
 
-        subset_cost = (
-            self._cost_fn(subset)
-            if self._cost_fn is not None
-            else float(costs[subset].sum())
-        )
+        if precomputed_cost is not None:
+            subset_cost = precomputed_cost
+        elif self._cost_fn is not None:
+            subset_cost = self._cost_fn(subset)
+        else:
+            subset_cost = float(costs[subset].sum())
         mean_cost = subset_cost / k
         return base_merit - self.cost_penalty * mean_cost

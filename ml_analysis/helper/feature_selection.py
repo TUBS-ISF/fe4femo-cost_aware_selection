@@ -54,16 +54,24 @@ def _make_cost_fn(
         return None
 
     instances = list(set(X_train.index.values).union(set(X_test.index.values)))
+    group_mean_cost: dict[str, float] = {
+        g: float(feature_group_times.loc[instances, g].mean())
+        for g in feature_group_times.columns
+        if g in feature_group_times.columns
+    }
+
+    col_names = list(X_train.columns)
+    feature_to_group: dict[str, str] = {
+        feat: group
+        for group, feats in group_dict.items()
+        for feat in feats
+    }
 
     def cost_fn(subset: list[int]) -> float:
-        active_features = set(X_train.columns[subset])
-        active_groups = [
-            group for group, feature_list in group_dict.items()
-            if any(feature in active_features for feature in feature_list)
-        ]
-        if not active_groups:
-            return 0.0
-        return float(feature_group_times.loc[instances, active_groups].sum(axis=1).mean())
+        covered = {feature_to_group[col_names[i]]
+                   for i in subset
+                   if col_names[i] in feature_to_group}
+        return sum(group_mean_cost.get(g, 0.0) for g in covered)
 
     return cost_fn
 
@@ -386,10 +394,10 @@ def get_selection_HPO_space(features : str, trial : Trial, isClassification : bo
             }
         case "cost-gb":
             return {
-                "n_estimators":  trial.suggest_int("n_estimators", 50, 500),
+                "n_estimators":  trial.suggest_int("n_estimators", 50, 200),
                 "max_depth":     trial.suggest_int("max_depth", 3, 10),
                 "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
-                "max_iter":      trial.suggest_int("max_iter", 10, 50),
+                "max_iter":      trial.suggest_int("max_iter", 5, 20),
                 "delta":         trial.suggest_float("delta", 0.001, 1.0, log=True),
             }
         case "mopso":

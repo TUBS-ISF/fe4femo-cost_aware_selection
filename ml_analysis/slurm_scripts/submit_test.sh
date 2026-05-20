@@ -25,7 +25,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_SCRIPT="${SCRIPT_DIR}/run.sh"
 OUTPUT_PATH="$HOME/fe4femo/ml_analysis/out/main"
-DATA_PATH="$HOME/fe4femo/data"
+DATA_PATH="fe4femo/data"
 
 mkdir -p "${OUTPUT_PATH}"
 
@@ -61,11 +61,10 @@ for id in "${IDS[@]}"; do
         --partition="${PARTITION}"
         --ntasks="${task_count}"
         --time="${time_limit}"
-        --cpus-per-task=128
+        --cpus-per-task=32
         --mem-per-cpu=1950
-        --nodes=1-70
-        --use-min-nodes
-        --output="${OUTPUT_PATH}/${name}_%j.out"
+        --nodes=1
+        --output="${OUTPUT_PATH}/${name//#/_}_%j.out"
         --export=ALL,ML_FOLD="${fold_no}"
         "${RUN_SCRIPT}"
         --feature "${feature}"

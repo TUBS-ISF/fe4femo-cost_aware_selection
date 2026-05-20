@@ -137,13 +137,14 @@ def compute_final_model(client, model, features, X_train, X_test, y_train, y_tes
 def main(in_proc_id: int, worker_count : int, pathData: str, pathOutput: str, features: str, task: str, model: str, modelHPO: bool, selectorHPO: bool, hpo_its: int, multi_objective: bool, foldNo : int):
     warnings.simplefilter("ignore", UserWarning)
     cores = int(os.getenv("OMP_NUM_THREADS", "1"))
+    interface = os.getenv("DASK_INTERFACE", "ib0")
     scheduler_options = {
-        "interface": "ib0",
+        "interface": interface,
     }
     worker_options = {
         "local_directory": "$TMPDIR/",
         "nthreads": 1,
-        "interface": "ib0",
+        "interface": interface,
         "memory_limit": f"{cores * int(os.getenv("SLURM_MEM_PER_CPU", 2000))}MB",
     }
     scheduler_path = Path(os.path.expandvars("$HOME") + "/tmp/scheduler_files")
@@ -304,8 +305,8 @@ if __name__ == '__main__':
     cpus_per_node = int(os.getenv("SLURM_CPUS_ON_NODE", 128)) // int(os.getenv("OMP_NUM_THREADS", 2))
     no_nodes = int(os.getenv("SLURM_JOB_NUM_NODES", 1))
     worker_count = cpus_per_node*no_nodes - 2
-    if worker_count < 25:
-        raise ValueError("Not enough worker, needs at least 25")
+    if worker_count < 1:
+        raise ValueError("Not enough worker, needs at least 1")
     print(f"Starting {worker_count} workers with {int(os.getenv("OMP_NUM_THREADS", 2))} cores per worker")
 
     function_args = (worker_count, os.environ.get("HOME")+"/"+os.path.expandvars(args.pathData), os.environ.get("HOME")+"/"+os.path.expandvars(args.pathOutput), args.features, args.task, args.model, args.modelHPO, args.selectorHPO, args.HPOits, args.multiObjective, args.foldNo)

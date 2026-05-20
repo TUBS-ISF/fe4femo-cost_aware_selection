@@ -2,10 +2,9 @@
 #SBATCH --time=1:0:0
 #SBATCH --job-name=eval_model
 #SBATCH --ntasks=4
-#SBATCH --cpus-per-task=128
+#SBATCH --cpus-per-task=32
 #SBATCH --mem-per-cpu=1950
-#SBATCH --nodes=2-70
-#SBATCH --use-min-nodes
+#SBATCH --nodes=1
 
 if [[ -z "$ML_FOLD" ]]; then
   echo "Must provide ML_FOLD in environment" 1>&2
@@ -13,6 +12,7 @@ if [[ -z "$ML_FOLD" ]]; then
 fi
 
 export DASK_LOGGING__DISTRIBUTED=WARN
+export DASK_INTERFACE="${DASK_INTERFACE:-lo}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-2}"
 export PYTHONWARNINGS="${PYTHONWARNINGS:-ignore}"
 export JOBLIB_TEMP_FOLDER="${JOBLIB_TEMP_FOLDER:-${TMPDIR:-/tmp}}"
@@ -30,7 +30,8 @@ if [[ ! -f "${SIF}" ]]; then
   exit 1
 fi
 
-# Copy SIF to node-local scratch to avoid squashfuse failures over NFS when multiple nodes read the same file simultaneously.
+# Copy SIF to node-local scratch to avoid squashfuse failures over NFS
+# when multiple tasks read the same file simultaneously.
 local_sif="${TMPDIR}/ml_analysis.sif"
 echo "Copying SIF to local scratch: ${local_sif}"
 cp "${SIF}" "${local_sif}"
@@ -42,14 +43,14 @@ else
 fi
 
 if [[ $SLURMD_NODENAME =~ "compute" ]]; then
-  apptainer_cmd="="$HOME/apptainer-dir/usr/bin/apptainer"
+  apptainer_cmd="$HOME/apptainer-dir/bin/apptainer"
 else
   apptainer_cmd="apptainer"
 fi
+echo -e "NODE=${SLURMD_NODENAME}  APPTAINER=${apptainer_cmd}"
 
-srun "${apptainer_cmd}" exec \
-  --bind /etc/slurm/task_prolog:/etc/slurm/task_prolog \
-  --bind /scratch:/scratch \
+srun --exact "${apptainer_cmd}" exec \
+  --tmpdir "${TMPDIR}" \
   --bind "$HOME:$HOME" \
   --bind "$HOME/fe4femo/ml_analysis:/app" \
   --pwd /app \

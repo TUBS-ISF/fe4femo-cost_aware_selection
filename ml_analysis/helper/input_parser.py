@@ -36,7 +36,7 @@ def parse_input() -> argparse.Namespace:
         raise ValueError("RFE can only be used with gradboostForest, randomForest or adaboost")
     if result.features == "harris-hawks":
         raise NotImplementedError() # deactivated
-    unsupported_non_HPO = ["harris-hawks", "genetic", "HFMOEA"]
+    unsupported_non_HPO = ["harris-hawks", "genetic", "HFMOEA", "mopso"]
     if result.features not in unsupported_non_HPO and not result.selectorHPO:
         raise ValueError(f"No HPO currently only supported for {unsupported_non_HPO}")
     if not result.selectorHPO and result.modelHPO:

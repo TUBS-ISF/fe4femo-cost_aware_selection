@@ -2,14 +2,23 @@ import itertools
 import math
 from datetime import timedelta
 
-from generate_fold_model import create_run_name
 from helper.input_parser import get_feature_list, get_model_list, get_task_list
+
+
+def create_run_name(features: str, task: str, model: str, modelHPO: bool, selectorHPO: bool, hpo_its: int, multi_objective: bool, foldNo: int) -> str:
+    ret_value = f"{task}#{features}#{model}#{modelHPO}#{selectorHPO}"
+    if modelHPO or selectorHPO:
+        ret_value += f"#{hpo_its}"
+    ret_value += f"#{multi_objective}"
+    if foldNo >= 0:
+        ret_value += f"#{foldNo}"
+    return ret_value
 
 def is_modelHPO(feature: str) -> bool:
     return is_selectorHPO(feature)
 
 def is_selectorHPO(feature: str) -> bool:
-    return feature not in ["genetic", "HFMOEA"]
+    return feature not in ["genetic", "HFMOEA", "mopso"]
 
 def get_task_count(feature: str) -> int:
     if feature in ["genetic", "HFMOEA"]:
@@ -35,8 +44,8 @@ def get_runtime(hpoIts: int, feature: str, individual_folds : bool, multi_object
         "SVD-entropy" : 30,
         "NDFS" : 36,
         "optuna-combined" : 70,
-        "cost-cfs" : 60,
-        "cost-gb" : 90,
+        "cost-cfs" : 128,
+        "cost-gb" : 150,
         "mopso" : 210,
     }
 

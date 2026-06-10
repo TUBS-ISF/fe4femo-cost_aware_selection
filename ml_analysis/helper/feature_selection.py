@@ -224,28 +224,28 @@ def get_feature_selection(precomputed:dict, features : str, isClassification : b
     max_features = X_train.shape[1]
     match features:
         case "all" | "SATzilla" | "SATfeatPy" | "FMBA" | "FM_Chara" | "prefilter":
-            return X_train, X_test
+            return X_train, X_test, None
         case "kbest-mutalinfo":
             score_func = partial(mutual_info_classif, random_state=42, n_jobs=parallelism, n_neighbors=selector_args["n_neighbors"] ) if isClassification else partial(mutual_info_regression, random_state=42, n_jobs=parallelism, n_neighbors=selector_args["n_neighbors"])
             selector = SelectKBest(score_func, k=min(max_features, selector_args["k"]))# limit to max feature count after preprocessing
             selector.set_output(transform="pandas")
             selector.fit(X_train, y_train)
-            return selector.transform(X_train), selector.transform(X_test)
+            return selector.transform(X_train), selector.transform(X_test), None
         case "multisurf":
             top_features =  precomputed["top_features"].get().result()
             row_index_to_select = top_features[:min(max_features, selector_args["n_features_to_select"])]# limit to max feature count after preprocessing
-            return X_train.iloc[:, row_index_to_select], X_test.iloc[:, row_index_to_select]
+            return X_train.iloc[:, row_index_to_select], X_test.iloc[:, row_index_to_select], None
         case "mRMR":
             selector_args["K"] = min(max_features, selector_args["K"]) # limit to max feature count after preprocessing
             selected_feature_names = mrmr_classif(X_train, y_train, **selector_args, n_jobs=parallelism, show_progress=False) if isClassification else mrmr_regression(X_train, y_train, **selector_args, n_jobs=parallelism, show_progress=False)
-            return X_train[selected_feature_names], X_test[selected_feature_names]
+            return X_train[selected_feature_names], X_test[selected_feature_names], None
         case "RFE":
             set_njobs_if_possible(estimator, parallelism)
             selector_args["n_features_to_select"] = min(max_features, selector_args["n_features_to_select"])  # limit to max feature count after preprocessing
             selector = RFE(estimator, step=selector_args["step"], n_features_to_select=selector_args["n_features_to_select"])
             selector.set_output(transform="pandas")
             selector.fit(X_train, y_train)
-            return selector.transform(X_train), selector.transform(X_test)
+            return selector.transform(X_train), selector.transform(X_test), None
         case "harris-hawks":
             #deactivated
             raise NotImplementedError() # if reactivating --> implement seed for pseudo-rng, remove from HPO, change to accept folds like genetic
@@ -253,71 +253,75 @@ def get_feature_selection(precomputed:dict, features : str, isClassification : b
             selector = HarrisHawkParallel(objective_function_zoo, **selector_args, minimize=False)
             selected_feature_names = set(selector.fit(estimator, precomputed["X_train_i"], precomputed["y_train_i"], precomputed["X_test_i"], precomputed["y_test_i"], verbose=False))
             intersection = list(set(selected_feature_names) & set(X_train.columns.tolist()))
-            return X_train[intersection], X_test[intersection]
+            return X_train[intersection], X_test[intersection], None
         case "genetic":
             selector = GeneticParallel(objective_function_zoo, **selector_args, parallelism=parallelism, minimize=False)
             fold_vars = extract_fold_list(precomputed)
             selected_feature_names = selector.fit_cv(estimator, precomputed["X_train"], precomputed["y_train"], fold_vars, verbose=verbose)
-            return X_train[selected_feature_names], X_test[selected_feature_names]
+            return X_train[selected_feature_names], X_test[selected_feature_names], None
         case "HFMOEA":
             if "topk" in selector_args.keys():
                 selector_args["topk"] = min(max_features, selector_args["topk"])  # limit to max feature count after preprocessing
             fold_vars = extract_fold_list(precomputed)
             feature_mask = reduceFeaturesMaxAcc(precomputed["X_train"], precomputed["y_train"], fold_vars, estimator, **selector_args, n_jobs=parallelism, is_classification=isClassification, sol=precomputed["sol"].get().result(), dask_parallel=dask_parallel, verbose=verbose)
-            return  X_train[ feature_mask], X_test[feature_mask]
+            return  X_train[ feature_mask], X_test[feature_mask], None
         case "embedded-tree":
             forest = RandomForestClassifier(n_estimators=selector_args["e_n_estimators"], max_depth=selector_args["e_max_depth"], n_jobs=parallelism, random_state=42) if isClassification else RandomForestRegressor(n_estimators=selector_args["e_n_estimators"], max_depth=selector_args["e_max_depth"], n_jobs=parallelism, random_state=42)
             forest.fit(X_train, y_train)
             selector_args["e_max_features"] = min(max_features, selector_args["e_max_features"])  # limit to max feature count after preprocessing
             model = SelectFromModel(forest, max_features=selector_args["e_max_features"], prefit=True)
             model.set_output(transform="pandas")
-            return model.transform(X_train), model.transform(X_test)
+            return model.transform(X_train), model.transform(X_test), None
         case "SVD-entropy":
             boolean_mask = precomputed["mask"].get().result().to_list()
-            return X_train.loc[:, boolean_mask], X_test.loc[:, boolean_mask]
+            return X_train.loc[:, boolean_mask], X_test.loc[:, boolean_mask], None
         case "NDFS":
             np_view = X_test.to_numpy()
             W = ndfs(np_view, n_clusters=selector_args["n_clusters"], alpha=selector_args["alpha"], beta=selector_args["beta"])
             ranking = feature_ranking(W)
             selector_args["n_features_to_select"] = min(max_features, selector_args["n_features_to_select"])  # limit to max feature count after preprocessing
             sliced = ranking[:selector_args["n_features_to_select"]]
-            return X_train.iloc[:, sliced], X_test.iloc[:, sliced]
+            return X_train.iloc[:, sliced], X_test.iloc[:, sliced], None
         case "optuna-combined":
             retained_features = set(X_train.columns)
             selected_feature_names_list = [ retained_features & set(v) for k, v in group_dict.items() if selector_args[k]]
             selected_feature_names = list(itertools.chain.from_iterable(selected_feature_names_list))
-            return X_train[selected_feature_names], X_test[selected_feature_names]
+            return X_train[selected_feature_names], X_test[selected_feature_names], None
         case "cost-cfs":
             cost_fn = _make_cost_fn(X_train, X_test, group_dict, feature_group_times)
             selector = CostBasedCFS(cost_penalty=selector_args.get("cost_penalty", 0.1))
             selector.fit(X_train, y_train, cost_fn=cost_fn)
-            return selector.transform(X_train), selector.transform(X_test)
+            return selector.transform(X_train), selector.transform(X_test), None
         case "cost-gb":
             cost_fn = _make_cost_fn(X_train, X_test, group_dict, feature_group_times)
+            n_features = X_train.shape[1]
+            max_cost = cost_fn(list(range(n_features))) if cost_fn is not None else float(n_features)
+            budget = selector_args.get("gb_budget_frac", 1.0) * max_cost
             selector = CostConstrainedGBSelector(
                 is_classification=isClassification,
                 n_jobs=parallelism,
-                max_iter=selector_args.get("max_iter", 50),
-                delta=selector_args.get("delta", None),
+                max_iter=10,
+                delta=None,
+                budget=budget,
                 gb_params={
-                    "n_estimators":  selector_args.get("n_estimators", 100),
-                    "max_depth":     selector_args.get("max_depth", 6),
-                    "learning_rate": selector_args.get("learning_rate", 0.1),
+                    "n_estimators":  selector_args.get("gb_n_estimators", 100),
+                    "max_depth":     selector_args.get("gb_max_depth", 6),
+                    "learning_rate": selector_args.get("gb_learning_rate", 0.1),
                 },
             )
             selector.fit(X_train, y_train, cost_fn=cost_fn)
-            return selector.transform(X_train), selector.transform(X_test)
+            return selector.transform(X_train), selector.transform(X_test), None
         case "mopso":
             cost_fn = _make_cost_fn(X_train, X_test, group_dict, feature_group_times)
             selector = MOPSOFeatureSelector(
                 n_particles=selector_args.get("n_particles", 30),
                 n_iterations=selector_args.get("n_iterations", 100),
-                selection_strategy=selector_args.get("selection_strategy", "min_cost"),
+                selection_strategy=selector_args.get("selection_strategy", "knee"),
                 is_classification=isClassification,
                 n_jobs=parallelism,
             )
             selector.fit(X_train, y_train, cost_fn=cost_fn)
-            return selector.transform(X_train), selector.transform(X_test)
+            return selector.transform(X_train), selector.transform(X_test), selector
         case _:
             raise ValueError("Invalid Feature Subset")
 
@@ -394,16 +398,15 @@ def get_selection_HPO_space(features : str, trial : Trial, isClassification : bo
             }
         case "cost-gb":
             return {
-                "n_estimators":  trial.suggest_int("n_estimators", 50, 200),
-                "max_depth":     trial.suggest_int("max_depth", 3, 10),
-                "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
-                "max_iter":      trial.suggest_int("max_iter", 5, 20),
-                "delta":         trial.suggest_float("delta", 0.001, 1.0, log=True),
+                "gb_n_estimators":  trial.suggest_int("gb_n_estimators", 50, 200),
+                "gb_max_depth":     trial.suggest_int("gb_max_depth", 3, 10),
+                "gb_learning_rate": trial.suggest_float("gb_learning_rate", 0.01, 0.3, log=True),
+                "gb_budget_frac":   trial.suggest_float("gb_budget_frac", 0.05, 1.0),
             }
         case "mopso":
             return {
-                "n_particles": trial.suggest_int("n_particles", 10, 50),
-                "n_iterations": trial.suggest_int("n_iterations", 20, 100),
+                "n_particles": trial.suggest_int("n_particles", 5, 20),
+                "n_iterations": trial.suggest_int("n_iterations", 10, 40),
                 "selection_strategy": trial.suggest_categorical("selection_strategy", ["min_cost", "max_perf", "knee"]),
             }
         case _:

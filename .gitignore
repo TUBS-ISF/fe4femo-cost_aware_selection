@@ -421,4 +421,5 @@ gradle-app.setting
 
 data/*
 tmp/*
-
+cost-based-feature-selection/*
+!cost-based-feature-selection/test/*

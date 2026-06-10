@@ -6,8 +6,7 @@ from collections.abc import Callable
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.model_selection import LeaveOneOut, cross_val_score
-from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.neighbors import NearestNeighbors
 from sklearn.utils.validation import check_is_fitted
 
 # helpers
@@ -61,7 +60,7 @@ class MOPSOFeatureSelector(BaseEstimator, TransformerMixin):
         is_classification: bool = True,
         archive_max_size: int = 30,
         budget: float | None = None,
-        selection_strategy: str = "min_cost",
+        selection_strategy: str = "knee",
         random_state: int = 42,
         n_jobs: int = 1,
         jump_prob: float = 0.01,
@@ -107,6 +106,8 @@ class MOPSOFeatureSelector(BaseEstimator, TransformerMixin):
 
         rng = np.random.default_rng(self.random_state)
 
+        X_eval = X_arr
+        y_eval = y_arr
 
         def _decode(pos: np.ndarray) -> np.ndarray:
             # equation 6
@@ -127,23 +128,20 @@ class MOPSOFeatureSelector(BaseEstimator, TransformerMixin):
             if cache_key in _eval_cache:
                 return _eval_cache[cache_key]
 
-            X_sel = X_arr[:, selected]
+            X_sel = X_eval[:, selected]
 
             try:
+                nn = NearestNeighbors(n_neighbors=2, algorithm="auto")
+                nn.fit(X_sel)
+                _, idx = nn.kneighbors(X_sel)
+                nn_idx = idx[:, 1]
+                y_pred = y_eval[nn_idx]
                 if self.is_classification:
-                    clf = KNeighborsClassifier(n_neighbors=1)
-                    scores = cross_val_score(
-                        clf, X_sel, y_arr, cv=LeaveOneOut(),
-                        scoring="accuracy", n_jobs=self.n_jobs,
-                    )
-                    perf = float(scores.mean())
+                    perf = float(np.mean(y_pred == y_eval))
                 else:
-                    reg = KNeighborsRegressor(n_neighbors=1)
-                    scores = cross_val_score(
-                        reg, X_sel, y_arr, cv=LeaveOneOut(),
-                        scoring="r2", n_jobs=self.n_jobs,
-                    )
-                    perf = float(max(0.0, scores.mean()))
+                    ss_res = float(np.sum((y_eval - y_pred) ** 2))
+                    ss_tot = float(np.sum((y_eval - y_eval.mean()) ** 2))
+                    perf = max(0.0, 1.0 - ss_res / ss_tot) if ss_tot > 0 else 0.0
             except Exception:
                 perf = 0.0
 
@@ -181,16 +179,26 @@ class MOPSOFeatureSelector(BaseEstimator, TransformerMixin):
             perf, f1, f2, total_c = _evaluate(mask)
             pbest_f1[i] = f1
             pbest_f2[i] = f2
-            entries.append((perf, f1, f2, total_c, mask.copy()))
+            entries.append((perf, f1, f2, total_c, mask.copy(), positions[i].copy()))
 
-        # Main Loop
+        prev_archive_sig: frozenset | None = None
+        stagnant = 0
         for t in range(self.n_iterations):
 
             archive = self._rebuild_archive(archive + entries)
 
-            for i, (perf, f1, f2, total_c, mask) in enumerate(entries):
+            archive_sig = frozenset(tuple(e[4].tolist()) for e in archive)
+            if archive_sig == prev_archive_sig:
+                stagnant += 1
+                if stagnant >= 5:
+                    break
+            else:
+                stagnant = 0
+                prev_archive_sig = archive_sig
+
+            for i, (perf, f1, f2, total_c, mask, pos) in enumerate(entries):
                 if not _dominates(pbest_f1[i], pbest_f2[i], f1, f2):
-                    pbest_pos[i] = positions[i].copy()
+                    pbest_pos[i] = pos.copy()
                     pbest_f1[i] = f1
                     pbest_f2[i] = f2
 
@@ -227,7 +235,7 @@ class MOPSOFeatureSelector(BaseEstimator, TransformerMixin):
             for i in range(self.n_particles):
                 mask = _decode(positions[i])
                 perf, f1, f2, total_c = _evaluate(mask)
-                entries.append((perf, f1, f2, total_c, mask.copy()))
+                entries.append((perf, f1, f2, total_c, mask.copy(), positions[i].copy()))
 
         self.pareto_front_ = sorted(
             [(e[0], e[3], e[4]) for e in archive],
@@ -284,12 +292,12 @@ class MOPSOFeatureSelector(BaseEstimator, TransformerMixin):
         if not archive:
             return np.full(n_features, 0.5, dtype=np.float64)
         if len(archive) == 1:
-            return archive[0][4].astype(np.float64)
+            return archive[0][5].astype(np.float64)
         if dists is None:
             dists = _crowding_distances([e[1] for e in archive], [e[2] for e in archive])
         idx_a, idx_b = rng.choice(len(archive), size=2, replace=False)
         winner = idx_a if dists[idx_a] >= dists[idx_b] else idx_b
-        return archive[winner][4].astype(np.float64)
+        return archive[winner][5].astype(np.float64)
 
     def _select_solution(self, pareto_front: list, budget: float | None, costs: np.ndarray) -> np.ndarray:
         candidates = pareto_front

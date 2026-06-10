@@ -51,7 +51,8 @@ def train_model(model, is_classification, cores, model_config, X_train_test, pre
 
 def do_feature_selection(model, is_classification, model_config, precomputed, features, selector_config, feature_groups, cores, verbose = False, feature_group_times = None):
     model_instance_selector = get_model(model, is_classification, 1, model_config )
-    return get_feature_selection(precomputed, features, is_classification, selector_config, model_instance_selector, feature_groups, parallelism=cores, verbose=verbose, dask_parallel=False, feature_group_times=feature_group_times)
+    X_train, X_test, _ = get_feature_selection(precomputed, features, is_classification, selector_config, model_instance_selector, feature_groups, parallelism=cores, verbose=verbose, dask_parallel=False, feature_group_times=feature_group_times)
+    return X_train, X_test
 
 def eval_feature_group_runtime(X_train_test, feature_groups: dict[str, list[str]], feature_group_times: pd.DataFrame) -> float:
     X_train, X_test = X_train_test
@@ -124,14 +125,14 @@ def compute_final_model(client, model, features, X_train, X_test, y_train, y_tes
     fs_future = client.submit(get_feature_selection, precomputed, features, is_classification, selector_config,
                               model_instance_selector, feature_groups, parallelism=cores, verbose=verbose,
                               dask_parallel=True, feature_group_times=feature_group_times, pure=False)
-    X_train, X_test = fs_future.result()
+    X_train, X_test, fitted_selector = fs_future.result()
     end_FS = time.time()
     model_instance = get_model(model, is_classification, cores, model_config)
     start_Model = time.time()
     model_instance.fit(X_train, y_train)
     end_Model = time.time()
     model_complete = model_instance
-    return model_complete, X_test, end_FS - start_FS, end_Model - start_Model
+    return model_complete, X_test, end_FS - start_FS, end_Model - start_Model, fitted_selector
 
 
 def main(in_proc_id: int, worker_count : int, pathData: str, pathOutput: str, features: str, task: str, model: str, modelHPO: bool, selectorHPO: bool, hpo_its: int, multi_objective: bool, foldNo : int):
@@ -231,10 +232,13 @@ def main(in_proc_id: int, worker_count : int, pathData: str, pathOutput: str, fe
                     objective_function = lambda trial: objective(trial, folds, features, model, modelHPO, is_classification, feature_groups, feature_group_times_future, feature_count, cores, multi_objective)
 
                     journal_path = run_config["path_output"] + "/" + run_config["name"] + ".journal"
-                    journal = optuna.storages.JournalStorage(optuna.storages.journal.JournalFileBackend(journal_path))
+                    class _NoLock:
+                        def acquire(self): pass
+                        def release(self): pass
+                    journal = optuna.storages.JournalStorage(optuna.storages.journal.JournalFileBackend(journal_path, lock_obj=_NoLock()))
                     storage = optuna.integration.dask.DaskStorage(journal)
                     sampler = TPESampler(seed=None, multivariate=True, group=True, constant_liar=True, categorical_distance_func=categorical_distance_function())
-                    study = optuna.create_study(study_name=run_config["name"], storage=storage, directions=["maximize", "minimize"], sampler=sampler) if multi_objective else optuna.create_study(study_name=run_config["name"], storage=storage, direction="maximize", sampler=sampler)
+                    study = optuna.create_study(study_name=run_config["name"], storage=storage, directions=["maximize", "minimize"], sampler=sampler, load_if_exists=True) if multi_objective else optuna.create_study(study_name=run_config["name"], storage=storage, direction="maximize", sampler=sampler, load_if_exists=True)
 
                     n_jobs = 25 #2 less than tasks for scheduler and main-node
 
@@ -259,13 +263,14 @@ def main(in_proc_id: int, worker_count : int, pathData: str, pathOutput: str, fe
                         best_params = frozen_best_trial.params
                         model_config = get_model_HPO_space(model, frozen_best_trial, is_classification) if modelHPO else None
                         selector_config = get_selection_HPO_space(features, frozen_best_trial, is_classification, feature_groups, X_train.shape[1])
-                        model_complete, X_test_mod, time_feature, time_model = compute_final_model(client, model, features, X_train,
+                        model_complete, X_test_mod, time_feature, time_model, fitted_selector = compute_final_model(client, model, features, X_train,
                                                                                        X_test, y_train, y_test,
                                                                                        is_classification, model_config,
                                                                                        selector_config, model_flatness,
                                                                                        feature_groups, easy_model, cores,
                                                                                        verbose, feature_group_times)
-                        trial_container.append(TrialContainer(model=model_complete, best_params=best_params, time_Feature=time_feature, time_Model=time_model, x_test=X_test_mod))
+                        pareto_front = [(e[0], e[1]) for e in fitted_selector.pareto_front_] if fitted_selector is not None else None
+                        trial_container.append(TrialContainer(model=model_complete, best_params=best_params, time_Feature=time_feature, time_Model=time_model, x_test=X_test_mod, pareto_front_=pareto_front))
 
                 else:
                     model_config = {}
@@ -273,13 +278,14 @@ def main(in_proc_id: int, worker_count : int, pathData: str, pathOutput: str, fe
                     verbose=True
                     easy_model = True
 
-                    model_complete, X_test, time_feature, time_model = compute_final_model(client, model, features, X_train,
+                    model_complete, X_test, time_feature, time_model, fitted_selector = compute_final_model(client, model, features, X_train,
                                                                                    X_test, y_train, y_test,
                                                                                    is_classification, model_config,
                                                                                    selector_config, model_flatness,
                                                                                    feature_groups, easy_model, cores,
                                                                                    verbose, feature_group_times)
-                    trial_container = [TrialContainer(model=model_complete, best_params=best_params, time_Feature=time_feature, time_Model=time_model, x_test=X_test)]
+                    pareto_front = [(e[0], e[1]) for e in fitted_selector.pareto_front_] if fitted_selector is not None else None
+                    trial_container = [TrialContainer(model=model_complete, best_params=best_params, time_Feature=time_feature, time_Model=time_model, x_test=X_test, pareto_front_=pareto_front)]
 
                 # export for later use
                 output = {

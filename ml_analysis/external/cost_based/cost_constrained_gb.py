@@ -196,8 +196,12 @@ class CostConstrainedGBSelector(BaseEstimator, TransformerMixin):
         max_k = self.max_features if self.max_features is not None else n_features
         selected: list[int] = []
 
+        candidates = rank[J[rank] > 0]
+        if len(candidates) == 0:
+            candidates = np.array([int(np.argmax(J))])
+
         if cost_fn is not None:
-            remaining = list(rank)
+            remaining = list(candidates)
             current_cost = 0.0
             while remaining and len(selected) < max_k:
                 best_idx, best_j = None, -np.inf
@@ -215,7 +219,7 @@ class CostConstrainedGBSelector(BaseEstimator, TransformerMixin):
                 remaining.remove(best_idx)
         else:
             cum_cost = 0.0
-            for idx in rank:
+            for idx in candidates:
                 if len(selected) >= max_k:
                     break
                 if self.budget is not None and cum_cost + costs[idx] > self.budget:

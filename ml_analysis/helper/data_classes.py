@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -23,3 +23,4 @@ class TrialContainer:
     best_params: dict[str, any]
     time_Feature: float
     time_Model: float
+    pareto_front_: list[tuple[float, float]] | None = field(default=None, hash=False, compare=False)

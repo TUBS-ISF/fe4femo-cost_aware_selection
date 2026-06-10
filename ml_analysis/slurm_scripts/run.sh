@@ -11,6 +11,8 @@ if [[ -z "$ML_FOLD" ]]; then
   exit 1
 fi
 
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONPYCACHEPREFIX=/tmp/pycache
 export DASK_LOGGING__DISTRIBUTED=WARN
 export DASK_INTERFACE="${DASK_INTERFACE:-lo}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-2}"
@@ -23,18 +25,19 @@ echo -e "OMP_THREADS=${OMP_NUM_THREADS}"
 
 echo -e "########\nCONTAINER START"
 
-SIF="$HOME/fe4femo/ml_analysis/ml_analysis.sif"
+SIF="$HOME/GITZ-home/fe4femo/ml_analysis/ml_analysis.sif"
 
 if [[ ! -f "${SIF}" ]]; then
   echo "SIF image not found: ${SIF}" 1>&2
   exit 1
 fi
 
-# Copy SIF to node-local scratch to avoid squashfuse failures over NFS
-# when multiple tasks read the same file simultaneously.
-local_sif="${TMPDIR}/ml_analysis.sif"
+# Copy SIF to node-local scratch under a per-job name to avoid races
+# when two jobs land on the same node and both try to write the same path.
+local_sif="${TMPDIR}/ml_analysis_${SLURM_JOB_ID}.sif"
 echo "Copying SIF to local scratch: ${local_sif}"
 cp "${SIF}" "${local_sif}"
+trap 'rm -f "${local_sif}"' EXIT
 
 if [ "$ML_FOLD" = "-1" ]; then
   RUN_COMMAND=("/app/slurm_scripts/fold_connector.sh")
@@ -52,6 +55,6 @@ echo -e "NODE=${SLURMD_NODENAME}  APPTAINER=${apptainer_cmd}"
 srun --exact "${apptainer_cmd}" exec \
   --tmpdir "${TMPDIR}" \
   --bind "$HOME:$HOME" \
-  --bind "$HOME/fe4femo/ml_analysis:/app" \
+  --bind "$HOME/GITZ-home/fe4femo/ml_analysis:/app" \
   --pwd /app \
   "${local_sif}" "${RUN_COMMAND[@]}" "$@"
